@@ -4,7 +4,7 @@
 같은 폴더의 my_mnist.csv 에 한 줄씩 저장합니다.
 CSV 형식: label, pixel0 ... pixel783  (Kaggle mnist_train.csv 와 동일)
 
-실행: app.py 더블클릭  또는  python app.py
+실행: run.bat 더블클릭  (.py 파일은 파이썬에 연결돼 있지 않다)
 필요 라이브러리: numpy, pillow  (pip install numpy pillow)
 """
 import csv
@@ -15,45 +15,11 @@ from tkinter import messagebox
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 
+from preprocess import to_mnist
+
 SIZE = 280                       # 그리기 캔버스 크기 (px)
 PREVIEW = 140                    # 미리보기 크기 (28x28 을 5배 확대)
 CSV_PATH = Path(__file__).parent / "my_mnist.csv"
-
-
-def to_mnist(img: Image.Image) -> np.ndarray | None:
-    """MNIST 방식 전처리.
-
-    글씨의 경계 상자를 비율 유지한 채 20x20 안에 맞춘 뒤,
-    무게중심이 28x28 이미지의 중앙에 오도록 배치한다.
-    """
-    arr = np.asarray(img)
-    ys, xs = np.nonzero(arr > 20)
-    if len(xs) == 0:
-        return None
-
-    crop = img.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
-    scale = 20 / max(crop.size)
-    w = max(1, round(crop.width * scale))
-    h = max(1, round(crop.height * scale))
-    small = np.asarray(crop.resize((w, h), Image.LANCZOS), dtype=np.float64)
-
-    # 무게중심 계산 후 28x28 중앙(14,14)으로 이동
-    total = small.sum()
-    cy = (np.arange(h)[:, None] * small).sum() / total
-    cx = (np.arange(w)[None, :] * small).sum() / total
-    ox = int(round(14 - cx - 0.5))
-    oy = int(round(14 - cy - 0.5))
-
-    out = np.zeros((28, 28), dtype=np.float64)
-    for y in range(h):
-        ty = y + oy
-        if not 0 <= ty < 28:
-            continue
-        for x in range(w):
-            tx = x + ox
-            if 0 <= tx < 28:
-                out[ty, tx] = small[y, x]
-    return np.clip(out, 0, 255).astype(np.uint8)
 
 
 class App:
@@ -151,7 +117,7 @@ class App:
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor="nw", image=self.tk_canvas_img)
 
-        pixels = to_mnist(self.image)
+        pixels = to_mnist(np.asarray(self.image))
         prev = Image.fromarray(pixels if pixels is not None else np.zeros((28, 28), np.uint8))
         self.tk_preview = ImageTk.PhotoImage(prev.resize((PREVIEW, PREVIEW), Image.NEAREST))
         self.preview.config(image=self.tk_preview)
@@ -178,7 +144,7 @@ class App:
         return counts
 
     def save_sample(self, label: int):
-        pixels = to_mnist(self.image)
+        pixels = to_mnist(np.asarray(self.image))
         if pixels is None:
             return
         new_file = not CSV_PATH.exists()
