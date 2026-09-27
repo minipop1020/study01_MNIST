@@ -11,7 +11,7 @@ Recognition-only demo, deployed to GitHub Pages as-is.
 
 ## Files
 
-- `index.html` — UI: 280×280 black canvas, 지우기/인식하기 buttons, big predicted digit, 확신도, top-3 candidate bars. Recognizes on pointer release; Esc clears, Ctrl+Z undoes; ignores a second pointer while drawing; stacks vertically on narrow screens. Shows an error and disables buttons if the model is missing or malformed.
+- `index.html` — UI: top banner "학번 2402165 이름 김지민" (class assignment requires it on the page itself — keep it), 280×280 black canvas, 지우기/인식하기 buttons, big predicted digit, 확신도, top-3 candidate bars. Recognizes on pointer release; Esc clears, Ctrl+Z undoes; ignores a second pointer while drawing; stacks vertically on narrow screens. Shows an error and disables buttons if the model is missing or malformed.
 - `preprocess.js` — `window.MnistPre` (`toMnist`, `areaDownscale`, `roundHalfUp`, `upscale10`, `grayFromImageData`), DOM-free.
 - `mlp.js` — `window.Mlp` (`decodeBase64`, `loadModel` which throws on bad shapes, `predict`).
 - `tests.html` — open in a browser; the summary at the top must read all passed (preprocessing ≥ 198/200 exact, full pipeline ≥ 199/200 agreement with Python, forward error < 1e-4).

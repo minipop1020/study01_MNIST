@@ -15,7 +15,8 @@ Collector + live recognizer (tkinter) and everything that produces the model. On
 - `preprocess.py` — `to_mnist`, `area_downscale`, `round_half_up`, `upscale10`. No tkinter. Must match `index.html` and `../web_version/preprocess.js` (see root CLAUDE.md).
 - `mnist_model.py` — `MLP` (He init, Adam, `save`/`load` npz, `export_js` → `window.MNIST_MODEL` with base64 float32 LE weights).
 - `mnist_data.py` — `parse_idx`, `load_mnist(cache_dir)`, `load_my_csv(path)`.
-- `train.py` — official 60k + `my_mnist.csv`, 5k validation split, 10 epochs, batch 64, fixed seeds → `model.npz` + `../web_version/model.js`.
+- `augment.py` — `augment(X, rng, y)`: on half of each training batch, random rotation (±15°)/shear (±0.3)/anisotropic scale/shift (bilinear) and stroke thickening/thinning; `add_flag` gives 35% of the 1s a top-left flag stroke. Without it the model misread mouse-drawn digits (a 6 with a big loop → 0, a flagged 1 → 7). Settings were chosen by drawing synthetic mouse-style digits in the web page (≈99.5% vs 97.2% before).
+- `train.py` — official 60k + `my_mnist.csv`, 5k validation split, MLP `SIZES` 784→256→128→10, 30 epochs with augmented batches, lr ×0.93 per epoch, batch 64, fixed seeds → `model.npz` + `../web_version/model.js`. Takes about 4 minutes (test 99.1%).
 - `make_golden.py` — 200 fixed test images → `../web_version/golden.js`.
 - `index.html` — standalone browser collector (localStorage key `mnist-handwriting-samples`, CSV/JSON export). Its `toMnist` is a copy of the shared algorithm.
 

@@ -16,7 +16,7 @@ Design spec and implementation plan: `docs/superpowers/specs/`, `docs/superpower
 
 - Sample: 28×28, black background (0), white strokes (255), uint8, row-major 784 values.
 - CSV: header `label,pixel0,...,pixel783` (same as Kaggle `mnist_train.csv`).
-- Model input: `pixels / 255`. Model: 784 → 128 → 64 → 10, ReLU hidden, softmax output, `W` shaped `(in, out)` so `y = x @ W + b`.
+- Model input: `pixels / 255`. Model: 784 → 256 → 128 → 10 (`train.py` `SIZES`; both loaders accept any layer sizes), ReLU hidden, softmax output, `W` shaped `(in, out)` so `y = x @ W + b`.
 
 ## Preprocessing lives in three places — keep them in sync
 
