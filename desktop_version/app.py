@@ -157,9 +157,10 @@ class App:
 
     # ---------- 인식 ----------
     def load_model(self) -> MLP | None:
+        # 없거나 깨진 파일이어도 수집 기능은 계속 쓸 수 있어야 한다.
         try:
             return MLP.load(MODEL_PATH)
-        except (OSError, KeyError, ValueError):
+        except Exception:
             return None
 
     def show_candidates(self, ranked: list[tuple[int, float]]):

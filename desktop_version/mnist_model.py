@@ -94,6 +94,14 @@ class MLP:
             n = len([k for k in f.files if k.startswith("W")])
             Ws = [f[f"W{i}"].astype(np.float32) for i in range(n)]
             bs = [f[f"b{i}"].astype(np.float32) for i in range(n)]
+        # 층 연결이 784 → … → 10 으로 이어지는지 확인 (web_version/mlp.js 의 loadModel 과 같은 검사)
+        prev = 784
+        for W, b in zip(Ws, bs):
+            if W.ndim != 2 or W.shape[0] != prev or b.shape != (W.shape[1],):
+                raise ValueError("model.npz 의 가중치 모양이 맞지 않습니다")
+            prev = W.shape[1]
+        if n == 0 or prev != 10:
+            raise ValueError("model.npz 의 층 구성이 맞지 않습니다")
         m = cls(sizes=(Ws[0].shape[0], *[W.shape[1] for W in Ws]))
         m.Ws, m.bs = Ws, bs
         return m
