@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>손글씨 숫자 인식</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --text: #1d2330; --muted: #6b7280;
+    --border: #d9dde3; --accent: #2563eb; --track: #eceef2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --panel: #1e2229; --text: #e6e8eb; --muted: #9aa3ae;
+            --border: #333a44; --accent: #4c8dff; --track: #2a303a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--text); }
+  .student { padding: 14px 16px; text-align: center; font-size: 1.05rem; font-weight: 600;
+             background: var(--panel); border-bottom: 1px solid var(--border); }
+  main { display: flex; gap: 32px; align-items: flex-start; justify-content: center;
+         flex-wrap: wrap; padding: 32px 16px; }
+  .guide { margin: 0 0 8px; font-size: .9rem; }
+  #draw { display: block; width: 280px; height: 280px; background: #000;
+          border: 1px solid var(--border); border-radius: 8px;
+          cursor: crosshair; touch-action: none; }
+  .buttons { display: flex; justify-content: space-between; gap: 12px; margin-top: 12px; }
+  button { flex: 1; font: inherit; font-size: .9rem; padding: 9px 0; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { cursor: default; opacity: .5; }
+  .result { min-width: 260px; }
+  .result h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+  #digit { font-size: 92px; line-height: 1.1; font-weight: 300; }
+  #status { margin: 0 0 18px; font-size: .85rem; color: var(--muted); min-height: 1.3em; }
+  .result h2 { margin: 0 0 8px; font-size: .85rem; font-weight: 600; }
+  .cand { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .cand-digit { width: 1.2em; font-size: .95rem; font-variant-numeric: tabular-nums; }
+  .bar { width: 150px; height: 14px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .cand-pct { width: 4.5em; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header class="student">학번 2402165 이름 김지민</header>
+<main>
+  <section>
+    <p class="guide">이곳에 숫자를 크게 그려 주세요.</p>
+    <canvas id="draw" width="280" height="280"></canvas>
+    <div class="buttons">
+      <button id="clear" type="button">지우기</button>
+      <button id="recognize" type="button">인식하기</button>
+    </div>
+  </section>
+
+  <section class="result">
+    <h1>인식 결과</h1>
+    <div id="digit">?</div>
+    <p id="status"></p>
+    <h2>가능성이 높은 후보</h2>
+    <div id="cands"></div>
+  </section>
+</main>
+
+<script src="model.js"></script>
+<script src="mlp.js"></script>
+<script src="preprocess.js"></script>
+<script>
+const BRUSH = 22;        // 280px 캔버스를 28px 로 줄였을 때 MNIST 획 굵기와 비슷해지는 값
+const TOP_K = 3;
+const HINT = '그림을 그리면 자동으로 인식합니다.';
+
+const draw = document.getElementById('draw');
+const dctx = draw.getContext('2d', { willReadFrequently: true });
+const digitEl = document.getElementById('digit');
+const statusEl = document.getElementById('status');
+const clearBtn = document.getElementById('clear');
+const recognizeBtn = document.getElementById('recognize');
+
+let strokes = [];        // 되돌리기용 획 목록
+let current = null;
+let activePointer = null;
+let model = null;
+
+// ---------- 후보 줄 ----------
+const cands = [];
+for (let k = 0; k < TOP_K; k++) {
+  const row = document.createElement('div');
+  row.className = 'cand';
+  row.innerHTML = '<span class="cand-digit">-</span>'
+                + '<span class="bar"><span class="bar-fill" style="display:block"></span></span>'
+                + '<span class="cand-pct"></span>';
+  document.getElementById('cands').append(row);
+  cands.push({ digit: row.children[0], fill: row.querySelector('.bar-fill'), pct: row.children[2] });
+}
+
+function showEmpty(message) {
+  digitEl.textContent = '?';
+  statusEl.textContent = message;
+  for (const c of cands) { c.digit.textContent = '-'; c.fill.style.width = '0%'; c.pct.textContent = ''; }
+}
+
+// ---------- 그리기 ----------
+function pos(e) {
+  const r = draw.getBoundingClientRect();
+  return [(e.clientX - r.left) * draw.width / r.width,
+          (e.clientY - r.top) * draw.height / r.height];
+}
+function redraw() {
+  dctx.fillStyle = '#000';
+  dctx.fillRect(0, 0, draw.width, draw.height);
+  dctx.strokeStyle = '#fff';
+  dctx.lineCap = dctx.lineJoin = 'round';
+  for (const s of strokes) {
+    dctx.lineWidth = s.w;
+    dctx.beginPath();
+    dctx.moveTo(...s.pts[0]);
+    for (const p of s.pts) dctx.lineTo(...p);
+    if (s.pts.length === 1) dctx.lineTo(s.pts[0][0] + 0.1, s.pts[0][1]);   // 점 하나도 보이게
+    dctx.stroke();
+  }
+}
+draw.addEventListener('pointerdown', e => {
+  if (e.button !== 0 || activePointer !== null) return;   // 두 번째 손가락은 무시
+  e.preventDefault();
+  draw.setPointerCapture(e.pointerId);
+  activePointer = e.pointerId;
+  current = { w: BRUSH, pts: [pos(e)] };
+  strokes.push(current);
+  redraw();
+});
+function endStroke(e) {
+  if (e.pointerId !== activePointer) return;
+  activePointer = null;
+  current = null;
+  recognize(false);
+}
+draw.addEventListener('pointermove', e => {
+  if (e.pointerId !== activePointer) return;
+  // pointerup 을 놓친 경우(창이 포커스를 잃는 등): 버튼이 떼어져 있으면 획을 끝낸다.
+  if (e.pointerType === 'mouse' && !(e.buttons & 1)) { endStroke(e); return; }
+  current.pts.push(pos(e));
+  redraw();
+});
+// lostpointercapture: pointerup 없이 캡처가 풀려도 그리기 상태가 남지 않게 한다.
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => draw.addEventListener(t, endStroke));
+
+// ---------- 인식 ----------
+function recognize(fromButton) {
+  if (!model) return;
+  const pixels = MnistPre.toMnist(MnistPre.grayFromImageData(
+    dctx.getImageData(0, 0, draw.width, draw.height)), draw.width, draw.height);
+  if (!pixels) {
+    showEmpty(fromButton ? '아직 그린 내용이 없습니다.' : HINT);
+    return;
+  }
+  const ranked = Array.from(Mlp.predict(model, pixels), (p, d) => ({ d, p }))
+    .sort((a, b) => b.p - a.p).slice(0, TOP_K);
+  digitEl.textContent = ranked[0].d;
+  statusEl.textContent = `확신도 ${(ranked[0].p * 100).toFixed(1)}%`;
+  ranked.forEach((r, k) => {
+    cands[k].digit.textContent = r.d;
+    cands[k].fill.style.width = `${Math.max(1, r.p * 100)}%`;
+    cands[k].pct.textContent = `${(r.p * 100).toFixed(1)}%`;
+  });
+}
+
+function clearAll() { strokes = []; redraw(); recognize(false); }
+function undo() { strokes.pop(); redraw(); recognize(false); }
+
+clearBtn.onclick = clearAll;
+recognizeBtn.onclick = () => recognize(true);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') clearAll();
+  else if (e.key.toLowerCase() === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); }
+});
+
+// ---------- 시작 ----------
+redraw();
+try {
+  model = Mlp.loadModel(window.MNIST_MODEL);
+  showEmpty(HINT);
+} catch (err) {
+  showEmpty(`모델을 불러오지 못했습니다: ${err.message}`);
+  clearBtn.disabled = recognizeBtn.disabled = true;
+}
+</script>
+</body>
+</html>

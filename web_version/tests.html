@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인식기 검사</title>
+<style>
+  body { font-family: system-ui, "Malgun Gothic", sans-serif; margin: 24px 16px; line-height: 1.6; }
+  #summary { font-size: 1.3rem; font-weight: 700; margin-bottom: 12px; }
+  .pass { color: #15803d; }
+  .fail { color: #b91c1c; }
+  li { margin-bottom: 4px; }
+  small { color: #6b7280; }
+</style>
+</head>
+<body>
+<div id="summary">검사 중…</div>
+<ul id="results"></ul>
+
+<!-- 파이썬이 만든 데이터와 JS 구현이 같은 결과를 내는지 확인한다. -->
+<script src="model.js"></script>
+<script src="golden.js"></script>
+<script src="mlp.js"></script>
+<script src="preprocess.js"></script>
+<script>
+const results = [];
+function check(name, fn) {
+  try {
+    const r = fn();
+    results.push({ name, ok: r.ok, detail: r.detail || '' });
+  } catch (e) {
+    results.push({ name, ok: false, detail: '예외: ' + e.message });
+  }
+}
+
+check('base64 디코딩', () => {
+  const got = Array.from(Mlp.decodeBase64('AAF/gP8='));
+  return { ok: got.join() === '0,1,127,128,255', detail: got.join(',') };
+});
+
+const model = (() => { try { return Mlp.loadModel(window.MNIST_MODEL); } catch { return null; } })();
+const items = (window.MNIST_GOLDEN || { items: [] }).items;
+
+check('모델 불러오기', () => ({ ok: model !== null && model.layers.length === 3,
+  detail: model ? `test 정확도 ${(model.testAccuracy * 100).toFixed(1)}%` : '실패' }));
+
+check('손상된 모델은 오류', () => {
+  const bad = JSON.parse(JSON.stringify(window.MNIST_MODEL));
+  bad.layers[0].W = 'AAAA';
+  try { Mlp.loadModel(bad); return { ok: false, detail: '오류가 나지 않음' }; }
+  catch (e) { return { ok: true, detail: e.message }; }
+});
+
+check('모델 없음은 오류', () => {
+  try { Mlp.loadModel(undefined); return { ok: false, detail: '오류가 나지 않음' }; }
+  catch (e) { return { ok: true, detail: e.message }; }
+});
+
+check('검증 데이터 200장', () => ({ ok: items.length === 200, detail: `${items.length}장` }));
+
+check('순전파 (pre → JS MLP, 최대 오차 < 1e-4)', () => {
+  let maxErr = 0;
+  for (const it of items) {
+    const p = Mlp.predict(model, Mlp.decodeBase64(it.pre));
+    for (let k = 0; k < 10; k++) maxErr = Math.max(maxErr, Math.abs(p[k] - it.probs[k]));
+  }
+  return { ok: items.length > 0 && maxErr < 1e-4, detail: `최대 오차 ${maxErr.toExponential(2)}` };
+});
+
+// 전처리 결과를 한 번만 계산해 두 검사에서 같이 쓴다.
+const jsPre = items.map(it => MnistPre.toMnist(MnistPre.upscale10(Mlp.decodeBase64(it.src)), 280, 280));
+
+check('전처리 (src → ×10 → JS toMnist, 완전 일치 ≥ 198/200)', () => {
+  let same = 0; const bad = [];
+  items.forEach((it, i) => {
+    const want = Mlp.decodeBase64(it.pre), got = jsPre[i];
+    let diff = got ? 0 : 255;
+    if (got) for (let k = 0; k < 784; k++) diff = Math.max(diff, Math.abs(got[k] - want[k]));
+    if (diff === 0) same++; else bad.push(`#${i}(최대 ${diff})`);
+  });
+  return { ok: same >= 198, detail: `${same}/${items.length} 일치` + (bad.length ? ` · 불일치 ${bad.join(' ')}` : '') };
+});
+
+check('전체 경로 (파이썬 예측과 일치 ≥ 199/200)', () => {
+  let agree = 0, correct = 0;
+  items.forEach((it, i) => {
+    const p = Mlp.predict(model, jsPre[i]);
+    const js = argmax(p), py = argmax(it.probs);
+    if (js === py) agree++;
+    if (js === it.label) correct++;
+  });
+  return { ok: agree >= 199, detail: `${agree}/${items.length} 일치 · JS 정확도 ${(correct / items.length * 100).toFixed(1)}%` };
+});
+
+check('빈 입력은 null', () => ({ ok: MnistPre.toMnist(new Uint8Array(280 * 280), 280, 280) === null }));
+
+check('점 하나도 인식', () => {
+  const img = new Uint8Array(280 * 280);
+  img[100 * 280 + 100] = 255;
+  const out = MnistPre.toMnist(img, 280, 280);
+  return { ok: out !== null && out.some(v => v > 0) };
+});
+
+check('반올림은 floor(v + 0.5)', () => {
+  const got = [0.5, 1.5, 2.5, -0.5].map(MnistPre.roundHalfUp);
+  return { ok: got.join() === '1,2,3,0', detail: got.join(',') };
+});
+
+check('면적 평균 축소 (손 계산값)', () => {
+  const src = [0, 90, 180, 90, 180, 255, 180, 255, 255];
+  const got = Array.from(MnistPre.areaDownscale(src, 3, 0, 0, 3, 3, 2, 2));
+  return { ok: got.join() === '60,177,177,247', detail: got.join(',') };
+});
+
+function argmax(a) { let b = 0; for (let i = 1; i < a.length; i++) if (a[i] > a[b]) b = i; return b; }
+
+const passed = results.filter(r => r.ok).length;
+const summary = document.getElementById('summary');
+summary.textContent = `통과 ${passed} / 전체 ${results.length}`;
+summary.className = passed === results.length ? 'pass' : 'fail';
+document.getElementById('results').innerHTML = results.map(r =>
+  `<li class="${r.ok ? 'pass' : 'fail'}">${r.ok ? '통과' : '실패'} — ${r.name} <small>${r.detail}</small></li>`).join('');
+</script>
+</body>
+</html>
