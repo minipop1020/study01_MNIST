@@ -126,17 +126,21 @@ draw.addEventListener('pointerdown', e => {
   strokes.push(current);
   redraw();
 });
-draw.addEventListener('pointermove', e => {
-  if (e.pointerId !== activePointer) return;
-  current.pts.push(pos(e));
-  redraw();
-});
-['pointerup', 'pointercancel'].forEach(t => draw.addEventListener(t, e => {
+function endStroke(e) {
   if (e.pointerId !== activePointer) return;
   activePointer = null;
   current = null;
   recognize(false);
-}));
+}
+draw.addEventListener('pointermove', e => {
+  if (e.pointerId !== activePointer) return;
+  // pointerup 을 놓친 경우(창이 포커스를 잃는 등): 버튼이 떼어져 있으면 획을 끝낸다.
+  if (e.pointerType === 'mouse' && !(e.buttons & 1)) { endStroke(e); return; }
+  current.pts.push(pos(e));
+  redraw();
+});
+// lostpointercapture: pointerup 없이 캡처가 풀려도 그리기 상태가 남지 않게 한다.
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => draw.addEventListener(t, endStroke));
 
 // ---------- 인식 ----------
 function recognize(fromButton) {
