@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web_version",
+      "runtimeExecutable": "C:\\Users\\jimin\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "web_version"],
+      "port": 8123
+    }
+  ]
+}
